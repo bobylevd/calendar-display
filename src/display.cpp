@@ -26,10 +26,11 @@ static uint16_t colFlashText;
 static int lastMinute = -1;
 static int lastTheme = -1;
 static bool lastClock = true;
-static uint32_t lastDataHash = 0;
+static uint32_t lastDataHash = 0xFFFFFFFF;
 static bool smoothFonts = false;
 static bool firstBoot = true;
 static bool redrawEvents = false;
+static bool fetchError = false;
 
 static void applyTheme(int theme) {
     uint16_t gray = tft.color565(0x88, 0x88, 0x88);
@@ -62,6 +63,7 @@ static void applyTheme(int theme) {
 }
 
 static uint16_t eventDotColor(const CalendarEvent& ev, time_t now);
+static void drawFetchBadge();
 
 static uint32_t hashCalendarData(const CalendarData& data, time_t now) {
     uint32_t h = data.count * 31;
@@ -169,7 +171,8 @@ void displayUpdate(const CalendarData& data) {
         lastClock = curClock;
         tft.fillScreen(colBg);
         lastMinute = -1;
-        lastDataHash = 0;
+        lastDataHash = 0xFFFFFFFF;
+        drawFetchBadge();
     }
 
     uint32_t dataHash = hashCalendarData(data, now);
@@ -186,6 +189,8 @@ void displayUpdate(const CalendarData& data) {
     if (firstBoot) {
         tft.fillScreen(colBg);
         firstBoot = false;
+        dataChanged = true;
+        drawFetchBadge();
     }
 
     bool showClock = getShowClock();
@@ -280,16 +285,16 @@ void displayUpdate(const CalendarData& data) {
             tft.fillRect(0, y - 4, SCREEN_W, 240 - y + 4, colBg);
         }
 
-        if (data.count == 0) {
-            if (dataChanged) tft.fillRect(0, 61, SCREEN_W, 179, colBg);
+        if (shown == 0) {
+            int centerY = showClock ? 150 : 120;
             tft.setTextColor(colSubtext, colBg);
             tft.setTextDatum(MC_DATUM);
             if (smoothFonts) {
                 tft.loadFont("Roboto30", LittleFS);
-                tft.drawString("No events", SCREEN_W / 2, 150);
+                tft.drawString("No events", SCREEN_W / 2, centerY);
                 tft.unloadFont();
             } else {
-                tft.drawString("No events", SCREEN_W / 2, 150, 4);
+                tft.drawString("No events", SCREEN_W / 2, centerY, 4);
             }
         }
     }
@@ -302,6 +307,24 @@ void displayCheckFonts() {
     } else {
         Serial.println("[display] no smooth fonts, using bitmap");
     }
+}
+
+static void drawFetchBadge() {
+    int cx = SCREEN_W - 12, cy = getShowClock() ? 8 : 3;
+    int r = getShowClock() ? 7 : 4;
+    if (fetchError) {
+        tft.fillCircle(cx, cy, r, TFT_RED);
+        int d = r - 2;
+        tft.drawLine(cx - d, cy - d, cx + d, cy + d, TFT_WHITE);
+        tft.drawLine(cx - d, cy + d, cx + d, cy - d, TFT_WHITE);
+    } else {
+        tft.fillRect(cx - r - 1, cy - r - 1, r * 2 + 2, r * 2 + 2, colBg);
+    }
+}
+
+void displayShowFetchError(bool error) {
+    fetchError = error;
+    drawFetchBadge();
 }
 
 void displaySetBrightness(int percent) {

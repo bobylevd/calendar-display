@@ -5,6 +5,7 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <LittleFS.h>
+#include <ArduinoJson.h>
 static ESP8266WebServer otaServer(8080);
 
 static const char OTA_PAGE[] PROGMEM = R"rawliteral(
@@ -59,7 +60,7 @@ hr{border:none;border-top:1px solid #444;margin:20px 0}
 <label><input type='checkbox' id='flash'> Flash screen on event start</label>
 <label>Flash count: <span id='fv'></span></label>
 <input type='range' id='fcnt' min='1' max='20'>
-<br><button class='btn' onclick='saveSettings()'>Save Settings</button>
+<br><button class='btn' onclick='saveSettings()'>Save Settings</button> <span id='ss' style='color:#5b5;font-size:14px'></span>
 <button class='btn btn-red' onclick="if(confirm('Reboot?'))fetch('/reboot')">Reboot</button>
 
 <h3>WiFi</h3>
@@ -105,7 +106,10 @@ function saveSettings(){
     flashCount:parseInt(fc.value),
     theme:parseInt(document.getElementById('theme').value)};
   fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(d)}).then(r=>r.text());
+    body:JSON.stringify(d)}).then(function(r){
+    var s=document.getElementById('ss');
+    if(r.ok){s.textContent='Saved!';s.style.color='#5b5'}else{s.textContent='Error!';s.style.color='#d33'}
+    setTimeout(function(){s.textContent=''},2000)});
 }
 fetch('/files').then(r=>r.text()).then(t=>document.getElementById('fl').innerHTML=t);
 </script>
@@ -123,65 +127,37 @@ void otaInit() {
 
     // Config API - GET
     otaServer.on("/api/config", HTTP_GET, []() {
-        String json = "{\"url\":\"" + getScriptUrl() + "\","
-            "\"tz\":\"" + String(getTimezone()) + "\","
-            "\"showClock\":" + String(getShowClock() ? "true" : "false") + ","
-            "\"flash\":" + (isFlashAlertEnabled() ? "true" : "false") + ","
-            "\"flashCount\":" + String(getFlashCount()) + ","
-            "\"brightness\":" + String(getBrightness()) + ","
-            "\"theme\":" + String(getTheme()) + ","
-            "\"ssid\":\"" + WiFi.SSID() + "\","
-            "\"ip\":\"" + WiFi.localIP().toString() + "\"}";
+        JsonDocument doc;
+        doc["url"] = getScriptUrl();
+        doc["tz"] = getTimezone();
+        doc["showClock"] = getShowClock();
+        doc["flash"] = isFlashAlertEnabled();
+        doc["flashCount"] = getFlashCount();
+        doc["brightness"] = getBrightness();
+        doc["theme"] = getTheme();
+        doc["ssid"] = WiFi.SSID();
+        doc["ip"] = WiFi.localIP().toString();
+        String json;
+        serializeJson(doc, json);
         otaServer.send(200, "application/json", json);
     });
 
     // Config API - POST
     otaServer.on("/api/config", HTTP_POST, []() {
-        String body = otaServer.arg("plain");
-
-        // Parse JSON fields with bounds checking
-        int idx;
-        String newUrl = getScriptUrl();
-        idx = body.indexOf("\"url\":\"");
-        if (idx >= 0) {
-            int start = idx + 7;
-            int end = body.indexOf("\"", start);
-            if (end > start) newUrl = body.substring(start, end);
+        JsonDocument doc;
+        if (deserializeJson(doc, otaServer.arg("plain"))) {
+            otaServer.send(400, "text/plain", "Invalid JSON");
+            return;
         }
 
-        String newTz = String(getTimezone());
-        idx = body.indexOf("\"tz\":\"");
-        if (idx >= 0) {
-            int start = idx + 6;
-            int end = body.indexOf("\"", start);
-            if (end > start) newTz = body.substring(start, end);
-        }
-
-        bool newClock = body.indexOf("\"showClock\":true") >= 0;
-        bool newFlash = body.indexOf("\"flash\":true") >= 0;
-
-        int newFc = getFlashCount();
-        idx = body.indexOf("\"flashCount\":");
-        if (idx >= 0) {
-            newFc = body.substring(idx + 13).toInt();
-            if (newFc < 1) newFc = 5;
-        }
-
-        int newTheme = getTheme();
-        idx = body.indexOf("\"theme\":");
-        if (idx >= 0) {
-            newTheme = body.substring(idx + 8).toInt();
-        }
-
-        setScriptUrl(newUrl);
-        setTimezone(newTz);
-        setShowClock(newClock);
-        setFlashAlert(newFlash);
-        setFlashCount(newFc);
-        setTheme(newTheme);
+        if (doc["url"].is<const char*>()) setScriptUrl(doc["url"].as<String>());
+        if (doc["tz"].is<const char*>()) setTimezone(doc["tz"].as<String>());
+        if (doc["showClock"].is<bool>()) setShowClock(doc["showClock"]);
+        if (doc["flash"].is<bool>()) setFlashAlert(doc["flash"]);
+        if (doc["flashCount"].is<int>()) setFlashCount(doc["flashCount"]);
+        if (doc["theme"].is<int>()) setTheme(doc["theme"]);
         saveConfig();
 
-        // Apply timezone immediately
         setenv("TZ", getTimezone(), 1);
         tzset();
 

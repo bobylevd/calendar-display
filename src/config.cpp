@@ -1,4 +1,5 @@
 #include "config.h"
+#include "display.h"
 #include <WiFiManager.h>
 #include <ESP8266WiFi.h>
 #include <LittleFS.h>
@@ -85,6 +86,9 @@ void configInit() {
 
     wm.setConnectTimeout(30);
     wm.setConfigPortalTimeout(180);
+    wm.setAPCallback([](WiFiManager*) {
+        displayShowSetup();
+    });
 
     if (!wm.autoConnect("CalendarDisplay")) {
         Serial.println("[config] WiFi failed - restarting");

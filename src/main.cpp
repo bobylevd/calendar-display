@@ -130,7 +130,9 @@ void setup() {
     }
     Serial.println("[main] NTP done");
 
-    calendarUpdate(getScriptUrl());
+    if (!calendarUpdate(getScriptUrl())) {
+        displayShowFetchError(true);
+    }
     lastCalendarUpdate = millis();
     displayUpdate(getCalendarData());
 }
@@ -146,6 +148,9 @@ void loop() {
         lastCalendarUpdate = now;
         if (!calendarUpdate(getScriptUrl())) {
             Serial.println("[main] calendar fetch failed");
+            displayShowFetchError(true);
+        } else {
+            displayShowFetchError(false);
         }
     }
 
